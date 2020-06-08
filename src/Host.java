@@ -8,7 +8,11 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.FileNotFoundException;
 import java.util.Scanner;
-
+import java.awt.Toolkit;
+import java.awt.Robot;
+import java.awt.Color;
+import java.awt.image.BufferedImage;
+import java.awt.Rectangle;
 /**
  * Host
  * Autor: Konrad Paluch
@@ -47,7 +51,6 @@ public class Host {
 			//System.out.println("[64] Prosba o odczytanie glosnosci.");
 			System.out.println("buttons");
 			System.out.println("send:");
-			System.out.println("\t[77] [r g b] Wyslanie koloru.");
 			System.out.println("\t[128] [message] Ping");
 			
             String line;
@@ -62,52 +65,15 @@ public class Host {
 					listener.terminate();
 				
 				if (command[0].equals("send")) {
-					
-					if(command.length == 1) {
-						System.out.println("Invalid command.");
 						
-					}
-					else {
-						switch (Integer.parseInt(command[1])) {
-							
-							case 64:
-							{
-								byte [] packet = utils.emptyPacket((byte)64);
-								utils.send(packet, os);
-								break;
-							}
-							case 77:
-							{
-								if (command.length == 5) {
-									
-									byte [] packet = utils.emptyPacket((byte)77);
-									packet[1] = (byte)Integer.parseInt(command[2]);
-									packet[2] = (byte)Integer.parseInt(command[3]);
-									packet[3] = (byte)Integer.parseInt(command[4]);
-									utils.send(packet, os);
-								}
-								else {
-									System.out.println("Invalid syntax");
-								}
-								break;
-							}
-							case 128:
-							{
-								byte [] packet = utils.emptyPacket((byte)128);
-								if (command.length >= 3){
-									byte[] b = command[2].getBytes();
-									for (int i = 1; i < 8 && i < command[2].length()+1; i++) {
-										packet[i] = b[i-1];
-									}
-								}
-								utils.send(packet, os);
-								break;
-							}
-							default:
-								System.out.println("Invalid command.");
-								break;
+					byte [] packet = utils.emptyPacket((byte)128);
+					if (command.length >= 2){
+						byte[] b = command[1].getBytes();
+						for (int i = 1; i < 8 && i < command[1].length()+1; i++) {
+							packet[i] = b[i-1];
 						}
 					}
+					utils.send(packet, os);
 				}
 				
 				if (command[0].equals("buttons")) {
@@ -143,18 +109,23 @@ class Listener implements Runnable {
 	double glosnosc; // TODO
 	Runtime runtime;
 	Button [] buttons;
+	long r1, g1, b1;
 	
 	Listener(InputStream is, OutputStream os) {
 		this.is = is;
 		this.os = os;
 		this.isRunning = true;
 		this.utils = new Utils();
+		this.utils.showLogs(false);
 		this.glosnosc = 75;
 		this.runtime = Runtime.getRuntime();
 		this.buttons = new Button[8];
 		for (int i=0; i<8; i++) {
 			buttons[i] = new Button();
 		}
+		this.r1 = 0;
+		this.g1 = 0;
+		this.b1 = 0;
 		
 		//DEBUG
 		loadButtons();
@@ -218,17 +189,13 @@ class Listener implements Runnable {
 				
 				utils.receive(packet, is);
 				
-				System.out.println( "Packed received: " + utils.readableByte(packet[0]) );
+				if (utils.readableByte(packet[0]) != 0)
+					utils.log( "Packed received: " + utils.readableByte(packet[0]) );
 				
 				switch( utils.readableByte(packet[0]) ) {
-					case 0:
-					{
-						isRunning = false;
-						System.out.println("UART is busy.");
-					}
 					case 1:
 					{
-						System.out.println("\t[Prosba o wyslanie glosnosci]" );
+						utils.log("\t[Prosba o wyslanie glosnosci]" );
 						
 						// send response
 						byte [] outgoing_packet = utils.emptyPacket((byte)(75));
@@ -241,11 +208,11 @@ class Listener implements Runnable {
 					}
 					case 2:
 					{
-						System.out.println("\t[Prosba o wyslanie danych obciazenia systemu]" );
+						utils.log("\t[Prosba o wyslanie danych obciazenia systemu]" );
 
 						// send response
 						long allocatedMemory = runtime.totalMemory()/1024;
-						System.out.println("\t[allocatedMemory] " + allocatedMemory);
+						utils.log("\t[allocatedMemory] " + allocatedMemory);
 						byte [] outgoing_packet = utils.emptyPacket((byte)(76));
 						byte [] RAM = utils.intToBytes( (int)(allocatedMemory) );
 						
@@ -258,11 +225,11 @@ class Listener implements Runnable {
 					}
 					case 3:
 					{
-						System.out.println("\t[Prosba o informacje o systemie]" );
+						utils.log("\t[Prosba o informacje o systemie]" );
 						
 						// send response
 						long maxMemory = runtime.maxMemory()/1024;
-						System.out.println("\t[maxMemory] " + maxMemory);
+						utils.log("\t[maxMemory] " + maxMemory);
 						byte [] outgoing_packet = utils.emptyPacket((byte)(74));
 						byte [] RAM = utils.intToBytes( (int)(maxMemory) );
 						for (int i = 0; i < RAM.length; i++) {
@@ -275,7 +242,7 @@ class Listener implements Runnable {
 					case 4:
 					{
 						int button_number = utils.byteToInt( (byte)(0), packet[1] );
-						System.out.println("\t[Prosba o informacje o przycisku "+button_number+"]" );
+						utils.log("\t[Prosba o informacje o przycisku "+button_number+"]" );
 						// send response
 						
 						byte[] b = this.buttons[button_number].getDescription().getBytes();
@@ -299,8 +266,8 @@ class Listener implements Runnable {
 					{
 						int value = utils.byteToInt( packet[1], packet[2]);
 						this.glosnosc = value / 1023.0;
-						System.out.println("\tcontent: '" + value + "'" );
-						System.out.println("Ustawiono glosnosc na: " + (int)(this.glosnosc*100) + "%" );
+						utils.log("\tcontent: '" + value + "'" );
+						utils.log("Ustawiono glosnosc na: " + (int)(this.glosnosc*100) + "%" );
 						utils.setVolume((int)(this.glosnosc*100));
 						break;
 					}
@@ -308,7 +275,7 @@ class Listener implements Runnable {
 					{
 						try {
 							int button_number = utils.byteToInt( (byte)(0), packet[1] );
-							System.out.println("Wcisnieto przycisk: " + button_number );
+							utils.log("Wcisnieto przycisk: " + button_number );
 							if (buttons[button_number].getCommand().equals("")) break;
 							// Host po otrzymaniu powinien wykonać przypisaną do danego przycisku funkcję. Host sam ustala przypisane funkcje.
 							String [] cmd = {"/bin/bash", "-c", buttons[button_number].getCommand()};
@@ -324,7 +291,7 @@ class Listener implements Runnable {
 							process.getErrorStream();
 						}
 						catch (Exception e) {
-							System.out.println("Invalid command in button or command arguments.");
+							utils.log("Invalid command in button or command arguments.");
 							break;
 						}
 
@@ -333,7 +300,7 @@ class Listener implements Runnable {
 					case 75:
 					{
 						int intvalue = utils.byteToInt( packet[1], packet[2]);
-						System.out.println("\tcontent: '" + intvalue + "'" );
+						utils.log("\tcontent: '" + intvalue + "'" );
 						break;
 					}
 					case 128:
@@ -341,7 +308,7 @@ class Listener implements Runnable {
 						
 						// send response
 						String str = new String(packet);
-						System.out.println("\tcontent: '" + str.substring(1, str.length()).replace("\0", "") + "'");
+						utils.log("\tcontent: '" + str.substring(1, str.length()).replace("\0", "") + "'");
 						byte[] outgoing_packet = utils.emptyPacket( (byte)129 );
 						for (int i = 1; i < 8; i++) {
 							outgoing_packet[i] = packet[i];
@@ -352,10 +319,37 @@ class Listener implements Runnable {
 					case 129:
 					{
 						String str = new String(packet);
-						System.out.println("\tcontent: '" + str.substring(1, str.length()).replace("\0", "") + "'");
+						utils.log("\tcontent: '" + str.substring(1, str.length()).replace("\0", "") + "'");
 						break;
 					}
-				} 
+				}
+				
+				BufferedImage image = new Robot().createScreenCapture(new Rectangle(Toolkit.getDefaultToolkit().getScreenSize()));
+				
+				long r = 0, g = 0, b = 0;
+				
+				for (int x = 0; x < image.getWidth(); x++) {
+					for (int y = 0; y < image.getHeight(); y++) {
+						Color pixel = new Color(image.getRGB(x, y));
+						r += pixel.getRed();
+						g += pixel.getGreen();
+						b += pixel.getBlue();
+					}
+				}
+				r = r / (image.getWidth()*image.getHeight());
+				g = g / (image.getWidth()*image.getHeight());
+				b = b / (image.getWidth()*image.getHeight());
+				
+				if (utils.colorDifference(r, g, b, r1, g1, b1) > 30) {
+					byte [] outgoing_packet = utils.emptyPacket((byte)77);
+					outgoing_packet[1] = (byte)r;
+					outgoing_packet[2] = (byte)g;
+					outgoing_packet[3] = (byte)b;
+					r1 = r;
+					g1 = g;
+					b1 = b;
+					utils.send(outgoing_packet, os);
+				}
 			}	
 		}
 		catch (Exception er) {
